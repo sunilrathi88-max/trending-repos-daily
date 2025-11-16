@@ -1,0 +1,58 @@
+name: Daily Trending Repos Email
+
+on:
+  schedule:
+    # Runs at 4:30 AM UTC (10:00 AM IST)
+    - cron: '30 4 * * *'
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  fetch-and-email:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Fetch trending repositories
+        id: fetch-repos
+        run: |
+          # Get date from yesterday for trending repos
+          DATE=$(date -d '1 day ago' '+%Y-%m-%d')
+          
+          # Fetch trending repos using GitHub API
+          RESPONSE=$(curl -s -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/search/repositories?q=created:>$DATE&sort=stars&order=desc&per_page=5")
+          
+          # Parse the response and format as HTML
+          echo "EMAIL_BODY<<EOF" >> $GITHUB_ENV
+          echo "<html><body>" >> $GITHUB_ENV
+          echo "<h2>🔥 Top 5 Trending GitHub Repositories - $(date '+%B %d, %Y')</h2>" >> $GITHUB_ENV
+          echo "<p>Here are the top 5 trending repositories on GitHub:</p>" >> $GITHUB_ENV
+          echo "<ol>" >> $GITHUB_ENV
+          
+          echo "$RESPONSE" | jq -r '.items[] | "<li><strong><a href=\"" + .html_url + "\">" + .full_name + "</a></strong><br>⭐ Stars: " + (.stargazers_count | tostring) + "<br>📝 " + (.description // "No description") + "<br>🔤 Language: " + (.language // "N/A") + "<br><br></li>"' >> $GITHUB_ENV
+          
+          echo "</ol>" >> $GITHUB_ENV
+          echo "<p><em>This is an automated email sent daily at 10:00 AM IST</em></p>" >> $GITHUB_ENV
+          echo "</body></html>" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+      
+      - name: Send email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{secrets.EMAIL_USERNAME}}
+          password: ${{secrets.EMAIL_PASSWORD}}
+          subject: 🔥 Daily Trending GitHub Repositories - ${{ github.run_number }}
+          to: ${{secrets.EMAIL_TO}}
+          from: GitHub Trending Bot
+          body: ${{ env.EMAIL_BODY }}
+          content_type: text/html
